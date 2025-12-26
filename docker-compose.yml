@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wms
+      POSTGRES_PASSWORD: wms_password
+      POSTGRES_DB: wms
+    volumes:
+      - wms_pg:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  api:
+    build: ./server
+    environment:
+      DATABASE_URL: postgresql://wms:wms_password@db:5432/wms?schema=public
+      JWT_ACCESS_SECRET: change_me_access_secret
+      JWT_REFRESH_SECRET: change_me_refresh_secret
+      CORS_ORIGIN: http://localhost:5173
+      COOKIE_SECURE: "false"
+      PORT: "8080"
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+
+  web:
+    build: ./client
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
+volumes:
+  wms_pg:
