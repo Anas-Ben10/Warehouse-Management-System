@@ -2,7 +2,7 @@
 set -e
 
 echo "Running prisma db push..."
-npx prisma db push
+npx prisma db push --skip-generate
 
 if [ "$RUN_SEED" = "true" ]; then
   echo "Seeding database..."
