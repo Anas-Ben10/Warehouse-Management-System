@@ -14,5 +14,10 @@ COPY src ./src
 
 RUN npm run build
 
+# ✅ add entrypoint for db push + optional seed + start
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+
 EXPOSE 8080
-CMD ["npm","run","start"]
+CMD ["./entrypoint.sh"]
+
