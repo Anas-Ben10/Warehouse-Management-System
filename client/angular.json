@@ -21,7 +21,8 @@
               "src/manifest.webmanifest"
             ],
             "styles": [ "src/styles.css" ],
-            "scripts": []
+            "scripts": [],
+            "serviceWorker": "ngsw-config.json"
           },
           "configurations": {
             "production": {
@@ -29,8 +30,7 @@
               "outputHashing": "all",
               "sourceMap": false,
               "namedChunks": false,
-              "extractLicenses": true,
-              "serviceWorker": "ngsw-config.json"
+              "extractLicenses": true
             }
           }
         },
