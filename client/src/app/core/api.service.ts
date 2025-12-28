@@ -5,46 +5,48 @@ export type Item = { id: string; sku: string; name: string; barcode?: string | n
 export type Location = { id: string; code: string; name: string; };
 export type StockRow = { id: string; itemId: string; locationId: string; qty: number; item: Item; location: Location; };
 
-// ✅ Your deployed backend base URL
-const API_BASE = 'https://warehouse-management-system-6f19.onrender.com';
-const API = `${API_BASE}/api`;
-
-// ✅ If your auth uses cookies (very likely), keep this ON
-const OPTS = { withCredentials: true };
-
 @Injectable({ providedIn: 'root' })
 export class ApiService {
+  private readonly baseUrl =
+    (typeof window !== 'undefined' && window.location.hostname.includes('localhost'))
+      ? 'http://localhost:8080'
+      : 'https://warehouse-management-system-6f19.onrender.com';
+
+  // If your auth uses cookies (you have cookieParser + cors credentials),
+  // you MUST send withCredentials:
+  private readonly opts = { withCredentials: true };
+
   constructor(private http: HttpClient) {}
 
   login(email: string, password: string) {
-    return this.http.post<any>(`${API}/auth/login`, { email, password }, OPTS);
+    return this.http.post<any>(`${this.baseUrl}/api/auth/login`, { email, password }, this.opts);
   }
 
   me() {
-    return this.http.get<any>(`${API}/auth/me`, OPTS);
+    return this.http.get<any>(`${this.baseUrl}/api/auth/me`, this.opts);
   }
 
   listInventory() {
-    return this.http.get<StockRow[]>(`${API}/inventory`, OPTS);
+    return this.http.get<StockRow[]>(`${this.baseUrl}/api/inventory`, this.opts);
   }
 
   listItems() {
-    return this.http.get<Item[]>(`${API}/items`, OPTS);
+    return this.http.get<Item[]>(`${this.baseUrl}/api/items`, this.opts);
   }
 
   listLocations() {
-    return this.http.get<Location[]>(`${API}/locations`, OPTS);
+    return this.http.get<Location[]>(`${this.baseUrl}/api/locations`, this.opts);
   }
 
   createTxn(body: any) {
-    return this.http.post<any>(`${API}/transactions`, body, OPTS);
+    return this.http.post<any>(`${this.baseUrl}/api/transactions`, body, this.opts);
   }
 
   syncPush(ops: any[]) {
-    return this.http.post<any>(`${API}/sync/push`, { ops }, OPTS);
+    return this.http.post<any>(`${this.baseUrl}/api/sync/push`, { ops }, this.opts);
   }
 
   syncPull(since: number) {
-    return this.http.get<any>(`${API}/sync/pull?since=${since}`, OPTS);
+    return this.http.get<any>(`${this.baseUrl}/api/sync/pull?since=${since}`, this.opts);
   }
 }
