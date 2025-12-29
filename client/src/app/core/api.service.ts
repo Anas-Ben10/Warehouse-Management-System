@@ -5,43 +5,50 @@ export type Item = { id: string; sku: string; name: string; barcode?: string | n
 export type Location = { id: string; code: string; name: string; };
 export type StockRow = { id: string; itemId: string; locationId: string; qty: number; item: Item; location: Location; };
 
-const API_BASE = 'https://warehouse-management-system-6f19.onrender.com';
-
 @Injectable({ providedIn: 'root' })
 export class ApiService {
+  // ✅ Local dev: keep relative /api (works with your local nginx proxy)
+  // ✅ Render prod: use the backend URL directly
+  private readonly apiOrigin =
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      ? ''
+      : 'https://warehouse-management-system-6f19.onrender.com';
+
+  private url(path: string) {
+    return `${this.apiOrigin}${path}`;
+  }
+
   constructor(private http: HttpClient) {}
 
-  private opts = { withCredentials: true };
-
   login(email: string, password: string) {
-    return this.http.post<any>(`${API_BASE}/api/auth/login`, { email, password }, this.opts);
+    return this.http.post<any>(this.url('/api/auth/login'), { email, password }, { withCredentials: true });
   }
 
   me() {
-    return this.http.get<any>(`${API_BASE}/api/auth/me`, this.opts);
+    return this.http.get<any>(this.url('/api/auth/me'), { withCredentials: true });
   }
 
   listInventory() {
-    return this.http.get<StockRow[]>(`${API_BASE}/api/inventory`, this.opts);
+    return this.http.get<StockRow[]>(this.url('/api/inventory'), { withCredentials: true });
   }
 
   listItems() {
-    return this.http.get<Item[]>(`${API_BASE}/api/items`, this.opts);
+    return this.http.get<Item[]>(this.url('/api/items'), { withCredentials: true });
   }
 
   listLocations() {
-    return this.http.get<Location[]>(`${API_BASE}/api/locations`, this.opts);
+    return this.http.get<Location[]>(this.url('/api/locations'), { withCredentials: true });
   }
 
   createTxn(body: any) {
-    return this.http.post<any>(`${API_BASE}/api/transactions`, body, this.opts);
+    return this.http.post<any>(this.url('/api/transactions'), body, { withCredentials: true });
   }
 
   syncPush(ops: any[]) {
-    return this.http.post<any>(`${API_BASE}/api/sync/push`, { ops }, this.opts);
+    return this.http.post<any>(this.url('/api/sync/push'), { ops }, { withCredentials: true });
   }
 
   syncPull(since: number) {
-    return this.http.get<any>(`${API_BASE}/api/sync/pull?since=${since}`, this.opts);
+    return this.http.get<any>(this.url(`/api/sync/pull?since=${since}`), { withCredentials: true });
   }
 }
