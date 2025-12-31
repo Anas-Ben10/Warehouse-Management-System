@@ -1,54 +1,165 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environments/environment';
 
-export type Item = { id: string; sku: string; name: string; barcode?: string | null; reorderLevel: number; };
-export type Location = { id: string; code: string; name: string; };
-export type StockRow = { id: string; itemId: string; locationId: string; qty: number; item: Item; location: Location; };
+export type Division = { id: string; name: string };
+
+export type UserRow = {
+  id: string;
+  email: string;
+  name: string;
+  role: 'STAFF' | 'MANAGER' | 'ADMIN';
+  isActive: boolean;
+  division?: Division | null;
+  createdAt?: string;
+};
+
+export type Item = {
+  id: string;
+  sku: string;
+  name: string;
+  barcode?: string | null;
+  reorderLevel: number;
+  isDeleted?: boolean;
+};
+
+export type Location = { id: string; code: string; name: string };
+
+export type StockRow = {
+  id: string;
+  itemId: string;
+  locationId: string;
+  qty: number;
+  item: Item;
+  location: Location;
+};
+
+export type Kpis = {
+  itemsCount: number;
+  locationsCount: number;
+  totalStockQty: number;
+  txCount24h: number;
+  txCount7d: number;
+  topPerformers7d: Array<{ user: { id: string; name: string; email: string }; txCount7d: number }>;
+};
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  // ✅ Local dev: keep relative /api (works with your local nginx proxy)
-  // ✅ Render prod: use the backend URL directly
-  private readonly apiOrigin =
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-      ? ''
-      : 'https://warehouse-management-system-6f19.onrender.com';
-
-  private url(path: string) {
-    return `${this.apiOrigin}${path}`;
-  }
+  private base = (environment.apiBaseUrl || '').replace(/\/$/, '');
 
   constructor(private http: HttpClient) {}
 
+  // ---------- Auth ----------
   login(email: string, password: string) {
-    return this.http.post<any>(this.url('/api/auth/login'), { email, password }, { withCredentials: true });
+    return this.http.post<any>(
+      `${this.base}/api/auth/login`,
+      { email, password },
+      { withCredentials: true }
+    );
+  }
+
+  register(email: string, name: string, password: string) {
+    return this.http.post<any>(
+      `${this.base}/api/auth/register`,
+      { email, name, password },
+      { withCredentials: true }
+    );
+  }
+
+  setPassword(email: string, token: string, password: string) {
+    return this.http.post<any>(
+      `${this.base}/api/auth/set-password`,
+      { email, token, password },
+      { withCredentials: true }
+    );
   }
 
   me() {
-    return this.http.get<any>(this.url('/api/auth/me'), { withCredentials: true });
+    return this.http.get<any>(`${this.base}/api/auth/me`, { withCredentials: true });
   }
 
+  refresh() {
+    return this.http.post<any>(`${this.base}/api/auth/refresh`, {}, { withCredentials: true });
+  }
+
+  logout() {
+    return this.http.post<any>(`${this.base}/api/auth/logout`, {}, { withCredentials: true });
+  }
+
+  // ---------- Admin: users / roles / divisions ----------
+  listUsers() {
+    return this.http.get<UserRow[]>(`${this.base}/api/auth/users`, { withCredentials: true });
+  }
+
+  updateUser(id: string, patch: Partial<{ name: string; role: UserRow['role']; isActive: boolean; divisionId: string | null }>) {
+    return this.http.patch<UserRow>(`${this.base}/api/auth/users/${id}`, patch, { withCredentials: true });
+  }
+
+  inviteUser(body: { email: string; name: string; role?: UserRow['role']; divisionId?: string | null; expiresHours?: number }) {
+    return this.http.post<any>(`${this.base}/api/auth/invite`, body, { withCredentials: true });
+  }
+
+  listDivisions() {
+    return this.http.get<Division[]>(`${this.base}/api/auth/divisions`, { withCredentials: true });
+  }
+
+  createDivision(name: string) {
+    return this.http.post<Division>(`${this.base}/api/auth/divisions`, { name }, { withCredentials: true });
+  }
+
+  // ---------- Manager ----------
+  team() {
+    return this.http.get<UserRow[]>(`${this.base}/api/auth/team`, { withCredentials: true });
+  }
+
+  kpis() {
+    return this.http.get<Kpis>(`${this.base}/api/reports/kpis`, { withCredentials: true });
+  }
+
+  activity() {
+    return this.http.get<any[]>(`${this.base}/api/reports/activity`, { withCredentials: true });
+  }
+
+  // ---------- Inventory ----------
   listInventory() {
-    return this.http.get<StockRow[]>(this.url('/api/inventory'), { withCredentials: true });
+    return this.http.get<StockRow[]>(`${this.base}/api/inventory/stock`, { withCredentials: true });
   }
 
   listItems() {
-    return this.http.get<Item[]>(this.url('/api/items'), { withCredentials: true });
+    return this.http.get<Item[]>(`${this.base}/api/items`, { withCredentials: true });
+  }
+
+  lookupItem(params: { barcode?: string; sku?: string }) {
+    const qs = new URLSearchParams();
+    if (params.barcode) qs.set('barcode', params.barcode);
+    if (params.sku) qs.set('sku', params.sku);
+    return this.http.get<Item>(`${this.base}/api/items/lookup?${qs.toString()}`, { withCredentials: true });
   }
 
   listLocations() {
-    return this.http.get<Location[]>(this.url('/api/locations'), { withCredentials: true });
+    return this.http.get<Location[]>(`${this.base}/api/locations`, { withCredentials: true });
   }
 
-  createTxn(body: any) {
-    return this.http.post<any>(this.url('/api/transactions'), body, { withCredentials: true });
+  // ---------- Transactions ----------
+  createTxn(body: {
+    type: 'IN' | 'OUT' | 'MOVE';
+    itemId: string;
+    qty: number;
+    srcLocationId?: string | null;
+    dstLocationId?: string | null;
+    note?: string | null; // description
+    isFree?: boolean;
+    unitPrice?: number | null;
+  }) {
+    return this.http.post<any>(`${this.base}/api/transactions`, body, { withCredentials: true });
   }
 
+  // ---------- Sync ----------
   syncPush(ops: any[]) {
-    return this.http.post<any>(this.url('/api/sync/push'), { ops }, { withCredentials: true });
+    return this.http.post<any>(`${this.base}/api/sync/push`, { ops }, { withCredentials: true });
   }
 
   syncPull(since: number) {
-    return this.http.get<any>(this.url(`/api/sync/pull?since=${since}`), { withCredentials: true });
+    return this.http.get<any>(`${this.base}/api/sync/pull?since=${since}`, { withCredentials: true });
   }
 }

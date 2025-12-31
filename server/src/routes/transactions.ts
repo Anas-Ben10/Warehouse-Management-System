@@ -23,6 +23,8 @@ const txnSchema = z.object({
   srcLocationId: z.string().optional().nullable(),
   dstLocationId: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
+  isFree: z.boolean().optional(),
+  unitPrice: z.number().nonnegative().optional().nullable(),
 });
 
 async function bumpStock(itemId: string, locationId: string, delta: number) {

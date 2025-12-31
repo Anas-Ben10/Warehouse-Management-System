@@ -11,6 +11,27 @@ itemsRouter.get("/", requireAuth, async (_req, res) => {
   const items = await prisma.item.findMany({ where: { isDeleted: false }, orderBy: { updatedAt: "desc" } });
   res.json(items);
 });
+itemsRouter.get("/lookup", requireAuth, async (req, res) => {
+  const barcode = (req.query.barcode as string | undefined)?.trim();
+  const sku = (req.query.sku as string | undefined)?.trim();
+
+  if (!barcode && !sku) return res.status(400).json({ error: "Provide barcode or sku" });
+
+  const item = await prisma.item.findFirst({
+    where: {
+      isDeleted: false,
+      OR: [
+        ...(barcode ? [{ barcode }] : []),
+        ...(sku ? [{ sku }] : []),
+      ],
+    },
+  });
+
+  if (!item) return res.status(404).json({ error: "Not found" });
+  return res.json(item);
+});
+
+
 
 const itemSchema = z.object({
   sku: z.string().min(1),

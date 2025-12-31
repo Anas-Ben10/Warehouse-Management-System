@@ -4,6 +4,20 @@ import { z } from "zod";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 
 const prisma = new PrismaClient();
+
+async function bumpStock(
+  tx: any,
+  itemId: string,
+  locationId: string,
+  delta: number
+) {
+  await tx.stock.upsert({
+    where: { itemId_locationId: { itemId, locationId } },
+    update: { qty: { increment: delta } },
+    create: { itemId, locationId, qty: delta },
+  });
+}
+
 export const syncRouter = Router();
 
 /**
@@ -74,23 +88,43 @@ syncRouter.post("/push", requireAuth, async (req: AuthedRequest, res) => {
         const p = op.payload as any;
         if (p.id) await tx.location.update({ where: { id: p.id }, data: { isDeleted: true } }).catch(() => {});
       }
+if (op.kind === "TXN_CREATE") {
+  const p = op.payload as any;
 
-      if (op.kind === "TXN_CREATE") {
-        const p = op.payload as any;
-        // route logic already handles idempotency via offlineOpId
-        await tx.transaction.create({
-          data: {
-            offlineOpId: p.offlineOpId,
-            type: p.type,
-            itemId: p.itemId,
-            qty: p.qty,
-            srcLocationId: p.srcLocationId ?? null,
-            dstLocationId: p.dstLocationId ?? null,
-            note: p.note ?? null,
-            createdById: req.user!.id,
-          },
-        }).catch(() => {});
-      }
+  const created = await tx.transaction
+    .create({
+      data: {
+        offlineOpId: p.offlineOpId,
+        type: p.type,
+        itemId: p.itemId,
+        qty: p.qty,
+        srcLocationId: p.srcLocationId ?? null,
+        dstLocationId: p.dstLocationId ?? null,
+        note: p.note ?? null,
+        isFree: p.isFree ?? false,
+        unitPrice: p.unitPrice ?? null,
+        createdById: req.user!.id,
+      },
+    })
+    .catch(() => null);
+
+  // Keep inventory consistent for offline operations too
+  if (created) {
+    const qty = Number(p.qty || 0);
+
+    if (p.type === "IN" && p.dstLocationId) {
+      await bumpStock(tx, p.itemId, p.dstLocationId, qty);
+    }
+    if (p.type === "OUT" && p.srcLocationId) {
+      await bumpStock(tx, p.itemId, p.srcLocationId, -qty);
+    }
+    if (p.type === "MOVE") {
+      if (p.srcLocationId) await bumpStock(tx, p.itemId, p.srcLocationId, -qty);
+      if (p.dstLocationId) await bumpStock(tx, p.itemId, p.dstLocationId, qty);
+    }
+  }
+}
+
     });
 
     results.push({ id: op.id, status: "applied" });

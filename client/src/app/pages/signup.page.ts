@@ -1,33 +1,35 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterModule } from '@angular/router';
+import { RouterModule } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { AuthService } from '../core/auth.service';
 
 @Component({
   standalone: true,
-  selector: 'app-login-page',
+  selector: 'app-signup-page',
   imports: [CommonModule, FormsModule, RouterModule],
   template: `
     <div class="container">
-      <h2>Login</h2>
+      <h2>Sign up</h2>
 
       <div class="card">
+        <label>Name</label>
+        <input [(ngModel)]="name" placeholder="Full name" />
+
         <label>Email</label>
         <input [(ngModel)]="email" type="email" placeholder="you@example.com" />
 
         <label>Password</label>
-        <input [(ngModel)]="password" type="password" placeholder="••••••••" />
+        <input [(ngModel)]="password" type="password" placeholder="At least 6 characters" />
 
         <button (click)="submit()" [disabled]="loading">
-          {{ loading ? 'Signing in...' : 'Login' }}
+          {{ loading ? 'Creating...' : 'Create account' }}
         </button>
 
         <p class="hint" *ngIf="message">{{ message }}</p>
 
         <p class="hint">
-          No account? <a routerLink="/signup">Sign up</a>
+          Already have an account? <a routerLink="/login">Login</a>
         </p>
       </div>
     </div>
@@ -40,11 +42,10 @@ import { AuthService } from '../core/auth.service';
     .hint { margin: 0; color: #555; font-size: 13px; }
   `]
 })
-export class LoginPage {
+export class SignupPage {
   private api = inject(ApiService);
-  private auth = inject(AuthService);
-  private router = inject(Router);
 
+  name = '';
   email = '';
   password = '';
   loading = false;
@@ -53,18 +54,12 @@ export class LoginPage {
   submit() {
     this.message = '';
     this.loading = true;
-
-    this.api.login(this.email, this.password).subscribe({
+    this.api.register(this.email, this.name, this.password).subscribe({
       next: (res) => {
-        this.auth.setSession(res.accessToken, res.user);
-        this.router.navigateByUrl('/inventory');
+        this.message = res?.message || 'Registered. Waiting for admin approval.';
       },
       error: (err) => {
-        if (err?.status === 403 && err?.error?.code === 'PENDING_APPROVAL') {
-          this.message = 'Your account is pending admin approval. Please try again later.';
-        } else {
-          this.message = err?.error?.error || 'Login failed';
-        }
+        this.message = err?.error?.error || 'Signup failed';
         this.loading = false;
       },
       complete: () => (this.loading = false),
