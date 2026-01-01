@@ -103,7 +103,7 @@ model Transaction {
 
   // Purchase / receiving info (optional)
   isFree        Boolean   @default(false)
-  unitPrice     Decimal?  @db.Numeric(12,2)
+  unitPrice Decimal?  @db.Decimal(12,2)
 
   createdById   String
   createdAt     DateTime  @default(now())
