@@ -11,7 +11,9 @@ reportsRouter.get("/low-stock", requireAuth, async (_req, res) => {
   const stocks = await prisma.stock.findMany();
 
   const totals = new Map<string, number>();
-  for (const s of stocks) totals.set(s.itemId, (totals.get(s.itemId) || 0) + s.qty);
+  for (const s of stocks) {
+    totals.set(s.itemId, (totals.get(s.itemId) || 0) + s.qty);
+  }
 
   const low = items
     .map((i) => ({
@@ -28,7 +30,9 @@ reportsRouter.get("/low-stock", requireAuth, async (_req, res) => {
 });
 
 /**
- * KPIs + activity (ADMIN sees all, MANAGER sees only staff in their division)
+ * KPIs + activity
+ * - ADMIN: sees all
+ * - MANAGER: sees only STAFF in their division
  */
 reportsRouter.get("/kpis", requireAuth, async (req: AuthedRequest, res) => {
   const me = await prisma.user.findUnique({
@@ -43,37 +47,43 @@ reportsRouter.get("/kpis", requireAuth, async (req: AuthedRequest, res) => {
   const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  const scopeStaffWhere =
+  // Managers only see STAFF in their own division
+  const staffScopeUserWhere =
     role === Role.MANAGER
-      ? { role: Role.STAFF, isActive: true, divisionId: me?.divisionId ?? "__NONE__" }
+      ? {
+          role: Role.STAFF,
+          isActive: true,
+          divisionId: me?.divisionId ?? "__NONE__",
+        }
       : undefined;
+
+  const txnWhere24h =
+    role === Role.MANAGER
+      ? { createdAt: { gte: since24h }, createdBy: { is: staffScopeUserWhere } }
+      : { createdAt: { gte: since24h } };
+
+  const txnWhere7d =
+    role === Role.MANAGER
+      ? { createdAt: { gte: since7d }, createdBy: { is: staffScopeUserWhere } }
+      : { createdAt: { gte: since7d } };
 
   const [itemsCount, locationsCount, stockAgg, tx24h, tx7d] = await Promise.all([
     prisma.item.count({ where: { isDeleted: false } }),
-    prisma.location.count(),
+    prisma.location.count({ where: { isDeleted: false } }),
     prisma.stock.aggregate({ _sum: { qty: true } }),
-    prisma.transaction.count({
-      where:
-        role === Role.MANAGER
-          ? { createdAt: { gte: since24h }, createdBy: scopeStaffWhere }
-          : { createdAt: { gte: since24h } },
-    }),
-    prisma.transaction.count({
-      where:
-        role === Role.MANAGER
-          ? { createdAt: { gte: since7d }, createdBy: scopeStaffWhere }
-          : { createdAt: { gte: since7d } },
-    }),
+    prisma.transaction.count({ where: txnWhere24h }),
+    prisma.transaction.count({ where: txnWhere7d }),
   ]);
 
-  // Top performers (by transactions count in last 7 days)
+  // Top performers (MANAGER only) by tx count in last 7 days
+  // NOTE: Count `id` instead of `_all` to satisfy Prisma TS types.
   const top =
     role === Role.MANAGER
       ? await prisma.transaction.groupBy({
           by: ["createdById"],
-          where: { createdAt: { gte: since7d }, createdBy: scopeStaffWhere },
-          _count: { _all: true },
-          orderBy: { _count: { _all: "desc" } },
+          where: txnWhere7d,
+          _count: { id: true },
+          orderBy: { _count: { id: "desc" } },
           take: 10,
         })
       : [];
@@ -86,8 +96,13 @@ reportsRouter.get("/kpis", requireAuth, async (req: AuthedRequest, res) => {
     : [];
 
   const topMerged = top.map((t) => ({
-    user: topUsers.find((u) => u.id === t.createdById) ?? { id: t.createdById, name: "Unknown", email: "" },
-    txCount7d: t._count._all,
+    user:
+      topUsers.find((u) => u.id === t.createdById) ?? {
+        id: t.createdById,
+        name: "Unknown",
+        email: "",
+      },
+    txCount7d: t._count.id,
   }));
 
   return res.json({
@@ -109,9 +124,18 @@ reportsRouter.get("/activity", requireAuth, async (req: AuthedRequest, res) => {
   const role = me?.role as Role | undefined;
   if (!role) return res.status(401).json({ error: "Unauthorized" });
 
+  const staffScopeUserWhere =
+    role === Role.MANAGER
+      ? {
+          role: Role.STAFF,
+          isActive: true,
+          divisionId: me?.divisionId ?? "__NONE__",
+        }
+      : undefined;
+
   const where =
     role === Role.MANAGER
-      ? { createdBy: { role: Role.STAFF, divisionId: me?.divisionId ?? "__NONE__", isActive: true } }
+      ? { createdBy: { is: staffScopeUserWhere } }
       : undefined;
 
   const activity = await prisma.transaction.findMany({
@@ -133,7 +157,7 @@ reportsRouter.get("/activity", requireAuth, async (req: AuthedRequest, res) => {
       qty: t.qty,
       note: t.note,
       isFree: t.isFree,
-      unitPrice: t.unitPrice,
+      unitPrice: t.unitPrice ? t.unitPrice.toString() : null, // important for JSON
       createdAt: t.createdAt,
       item: { id: t.item.id, sku: t.item.sku, name: t.item.name, barcode: t.item.barcode },
       createdBy: t.createdBy,
