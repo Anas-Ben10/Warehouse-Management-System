@@ -15,6 +15,8 @@ import { ApiService } from './core/api.service';
       <nav class="nav" *ngIf="auth.user as u; else guest">
         <a routerLink="/inventory" routerLinkActive="active">Inventory</a>
         <a routerLink="/transactions" routerLinkActive="active">Transactions</a>
+        <a routerLink="/projects" routerLinkActive="active">Projects</a>
+        <a routerLink="/maps" routerLinkActive="active">Map</a>
         <a routerLink="/sync" routerLinkActive="active">Sync</a>
 
         <a *ngIf="u.role === 'ADMIN'" routerLink="/admin/users" routerLinkActive="active">Admin</a>

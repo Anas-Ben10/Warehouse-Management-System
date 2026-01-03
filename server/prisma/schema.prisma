@@ -17,6 +17,14 @@ enum TxnType {
   RECEIVE
   SHIP
   TRANSFER
+  DIVISION_TRANSFER
+  PROJECT_ISSUE
+  PROJECT_RETURN
+}
+
+enum LocationKind {
+  WAREHOUSE
+  PROJECT
 }
 
 
@@ -27,6 +35,9 @@ model Division {
   updatedAt DateTime @updatedAt
 
   users     User[]
+
+  locations Location[]
+  projects  Project[]
 }
 
 model User {
@@ -44,6 +55,10 @@ model User {
   inviteTokenHash String?
   inviteExpiresAt DateTime?
 
+
+  // Password reset flow
+  resetTokenHash  String?
+  resetExpiresAt  DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -65,6 +80,19 @@ model Item {
   transactions Transaction[]
 }
 
+model Project {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  name       String
+  divisionId String
+  locationId String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  division   Division @relation(fields: [divisionId], references: [id])
+  location   Location @relation(fields: [locationId], references: [id])
+}
+
 model Location {
   id        String   @id @default(cuid())
   code      String   @unique
@@ -73,6 +101,15 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+
+  kind      LocationKind @default(WAREHOUSE)
+  divisionId String?
+  address   String?
+  lat       Float?
+  lng       Float?
+
+  division  Division? @relation(fields: [divisionId], references: [id])
+  project   Project?
   stocks    Stock[]
   srcTxns   Transaction[] @relation("SrcLocation")
   dstTxns   Transaction[] @relation("DstLocation")
@@ -99,11 +136,12 @@ model Transaction {
   qty           Int
   srcLocationId String?
   dstLocationId String?
+  projectId     String?
   note          String?
 
   // Purchase / receiving info (optional)
   isFree        Boolean   @default(false)
-  unitPrice     Decimal?  @db.Numeric(12,2)
+  unitPrice Decimal?  @db.Decimal(12,2)
 
   createdById   String
   createdAt     DateTime  @default(now())
@@ -112,6 +150,7 @@ model Transaction {
   createdBy     User      @relation(fields: [createdById], references: [id])
   srcLocation   Location? @relation("SrcLocation", fields: [srcLocationId], references: [id])
   dstLocation   Location? @relation("DstLocation", fields: [dstLocationId], references: [id])
+  project       Project?  @relation(fields: [projectId], references: [id])
 }
 
 

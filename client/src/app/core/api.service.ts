@@ -23,7 +23,30 @@ export type Item = {
   isDeleted?: boolean;
 };
 
-export type Location = { id: string; code: string; name: string };
+export type LocationKind = 'WAREHOUSE' | 'PROJECT';
+
+export type Location = {
+  id: string;
+  code: string;
+  name: string;
+  kind?: LocationKind;
+  divisionId?: string | null;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+};
+
+export type Project = {
+  id: string;
+  code: string;
+  name: string;
+  divisionId: string;
+  division?: Division | null;
+  locationId: string;
+  location?: Location | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 export type StockRow = {
   id: string;
@@ -72,6 +95,18 @@ export class ApiService {
       { email, token, password },
       { withCredentials: true }
     );
+  }
+
+  forgotPassword(email: string) {
+    return this.http.post<any>(`${this.base}/api/auth/forgot-password`, { email }, { withCredentials: true });
+  }
+
+  resetPassword(email: string, token: string, password: string) {
+    return this.http.post<any>(`${this.base}/api/auth/reset-password`, { email, token, password }, { withCredentials: true });
+  }
+
+  adminSendReset(email: string) {
+    return this.http.post<any>(`${this.base}/api/auth/send-reset`, { email }, { withCredentials: true });
   }
 
   me() {
@@ -136,23 +171,54 @@ export class ApiService {
     return this.http.get<Item>(`${this.base}/api/items/lookup?${qs.toString()}`, { withCredentials: true });
   }
 
-  listLocations() {
-    return this.http.get<Location[]>(`${this.base}/api/locations`, { withCredentials: true });
+  listLocations(scope: "own" | "all" = "own") {
+    const qs = new URLSearchParams();
+    if (scope) qs.set("scope", scope);
+    return this.http.get<Location[]>(`${this.base}/api/locations?${qs.toString()}`, { withCredentials: true });
+  }
+
+  
+  createLocation(body: { code: string; name: string; kind?: LocationKind; divisionId?: string | null; address?: string | null; lat?: number | null; lng?: number | null; }) {
+    return this.http.post<Location>(`${this.base}/api/locations`, body, { withCredentials: true });
+  }
+
+  updateLocation(id: string, body: { code: string; name: string; kind?: LocationKind; divisionId?: string | null; address?: string | null; lat?: number | null; lng?: number | null; }) {
+    return this.http.put<Location>(`${this.base}/api/locations/${id}`, body, { withCredentials: true });
+  }
+
+  deleteLocation(id: string) {
+    return this.http.delete<Location>(`${this.base}/api/locations/${id}`, { withCredentials: true });
+  }
+
+// ---------- Projects ----------
+  listProjects() {
+    return this.http.get<Project[]>(`${this.base}/api/projects`, { withCredentials: true });
+  }
+
+  createProject(body: { code?: string; name: string; divisionId?: string }) {
+    return this.http.post<Project>(`${this.base}/api/projects`, body, { withCredentials: true });
+  }
+
+  projectStock(projectId: string) {
+    return this.http.get<any[]>(`${this.base}/api/projects/${projectId}/stock`, { withCredentials: true });
   }
 
   // ---------- Transactions ----------
   createTxn(body: {
-    type: 'IN' | 'OUT' | 'MOVE';
+    offlineOpId?: string;
+    type: 'RECEIVE' | 'SHIP' | 'TRANSFER' | 'DIVISION_TRANSFER' | 'PROJECT_ISSUE' | 'PROJECT_RETURN';
     itemId: string;
     qty: number;
     srcLocationId?: string | null;
     dstLocationId?: string | null;
+    projectId?: string | null;
     note?: string | null; // description
     isFree?: boolean;
     unitPrice?: number | null;
   }) {
     return this.http.post<any>(`${this.base}/api/transactions`, body, { withCredentials: true });
   }
+
 
   // ---------- Sync ----------
   syncPush(ops: any[]) {

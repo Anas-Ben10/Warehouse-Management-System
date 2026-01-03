@@ -9,9 +9,12 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from "../utils/jwt.js";
+import { sendMail } from "../utils/mailer.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 
 const prisma = new PrismaClient();
+const COOKIE_SECURE = (process.env.COOKIE_SECURE || "").toLowerCase() === "true";
+const APP_URL = process.env.PUBLIC_APP_URL || process.env.CORS_ORIGIN || "http://localhost:5173";
 
 export const authRouter = Router();
 
@@ -67,7 +70,7 @@ authRouter.post(
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
       sameSite: "lax",
-      secure: true,
+      secure: COOKIE_SECURE,
       path: "/api/auth/refresh",
     });
 
@@ -194,6 +197,111 @@ authRouter.get("/me", requireAuth, async (req: AuthedRequest, res) => {
 /**
  * Refresh access token
  */
+
+/**
+ * Forgot password (user-initiated):
+ * Creates a one-time reset token and (optionally) emails a reset link.
+ */
+authRouter.post("/forgot-password", authLimiter, async (req, res) => {
+  const schema = z.object({ email: z.string().email() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const email = parsed.data.email.toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  // Always return OK to avoid user enumeration
+  if (!user || !user.isActive) {
+    return res.json({ ok: true, message: "If the account exists, a reset email has been sent." });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const exp = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetTokenHash: tokenHash, resetExpiresAt: exp },
+  });
+
+  const resetLink = `${APP_URL}/reset-password?email=${encodeURIComponent(email)}&token=${token}`;
+
+  const sent = await sendMail({
+    to: email,
+    subject: "Reset your WMS password",
+    text: `Use this link to reset your password (valid for 30 minutes):\n\n${resetLink}\n\nIf you didn't request this, you can ignore this email.`,
+  });
+
+  return res.json({
+    ok: true,
+    message: "If the account exists, a reset email has been sent.",
+    // Helpful for local/dev if SMTP isn't configured:
+    resetLink: sent.sent ? undefined : resetLink,
+  });
+});
+
+/**
+ * Reset password (token + new password)
+ */
+authRouter.post("/reset-password", authLimiter, async (req, res) => {
+  const schema = z.object({
+    email: z.string().email(),
+    token: z.string().min(10),
+    password: z.string().min(8),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const email = parsed.data.email.toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return res.status(400).json({ error: "Invalid token" });
+
+  const tokenHash = crypto.createHash("sha256").update(parsed.data.token).digest("hex");
+  if (!user.resetTokenHash || user.resetTokenHash !== tokenHash) return res.status(400).json({ error: "Invalid token" });
+  if (!user.resetExpiresAt || user.resetExpiresAt.getTime() < Date.now()) return res.status(400).json({ error: "Token expired" });
+
+  const passwordHash = await argon2.hash(parsed.data.password, { type: argon2.argon2id });
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, resetTokenHash: null, resetExpiresAt: null },
+  });
+
+  return res.json({ ok: true });
+});
+
+/**
+ * Admin: send password reset to a user (generates token + emails link)
+ */
+authRouter.post("/send-reset", requireAuth, requireRoles([Role.ADMIN]), async (req: AuthedRequest, res) => {
+  const schema = z.object({ email: z.string().email() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const email = parsed.data.email.toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const exp = new Date(Date.now() + 30 * 60 * 1000);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetTokenHash: tokenHash, resetExpiresAt: exp },
+  });
+
+  const resetLink = `${APP_URL}/reset-password?email=${encodeURIComponent(email)}&token=${token}`;
+
+  const sent = await sendMail({
+    to: email,
+    subject: "Reset your WMS password",
+    text: `An admin has requested a password reset for your account.\n\nReset link (valid for 30 minutes):\n${resetLink}\n\nIf this wasn't expected, contact your admin.`,
+  });
+
+  return res.json({ ok: true, sent: sent.sent, resetLink: sent.sent ? undefined : resetLink });
+});
+
 authRouter.post("/refresh", async (req, res) => {
   const token = req.cookies?.refresh_token;
   if (!token) return res.status(401).json({ error: "No refresh token" });

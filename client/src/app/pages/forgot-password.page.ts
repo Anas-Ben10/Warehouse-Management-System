@@ -1,37 +1,34 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterModule } from '@angular/router';
+import { RouterModule } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { AuthService } from '../core/auth.service';
 
 @Component({
   standalone: true,
-  selector: 'app-login-page',
+  selector: 'app-forgot-password-page',
   imports: [CommonModule, FormsModule, RouterModule],
   template: `
     <div class="container">
-      <h2>Login</h2>
+      <h2>Forgot password</h2>
 
       <div class="card">
         <label>Email</label>
         <input [(ngModel)]="email" type="email" placeholder="you@example.com" />
 
-        <label>Password</label>
-        <input [(ngModel)]="password" type="password" placeholder="••••••••" />
-
         <button (click)="submit()" [disabled]="loading">
-          {{ loading ? 'Signing in...' : 'Login' }}
+          {{ loading ? 'Sending...' : 'Send reset link' }}
         </button>
 
         <p class="hint" *ngIf="message">{{ message }}</p>
 
-        <p class="hint">
-          No account? <a routerLink="/signup">Sign up</a>
-        </p>
+        <div class="hint" *ngIf="resetLink">
+          <b>Dev reset link:</b>
+          <div class="mono">{{ resetLink }}</div>
+        </div>
 
         <p class="hint">
-          Forgot password? <a routerLink="/forgot-password">Reset it</a>
+          Back to <a routerLink="/login">Login</a>
         </p>
       </div>
     </div>
@@ -42,33 +39,34 @@ import { AuthService } from '../core/auth.service';
     input { padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
     button { padding: 10px; border: 0; border-radius: 6px; cursor: pointer; }
     .hint { margin: 0; color: #555; font-size: 13px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; }
   `]
 })
-export class LoginPage {
+export class ForgotPasswordPage {
   private api = inject(ApiService);
-  private auth = inject(AuthService);
-  private router = inject(Router);
 
   email = '';
-  password = '';
   loading = false;
   message = '';
+  resetLink = '';
 
   submit() {
     this.message = '';
+    this.resetLink = '';
+    const e = (this.email || '').trim();
+    if (!e) {
+      this.message = 'Please enter your email.';
+      return;
+    }
     this.loading = true;
 
-    this.api.login(this.email, this.password).subscribe({
+    this.api.forgotPassword(e).subscribe({
       next: (res) => {
-        this.auth.setSession(res.accessToken, res.user);
-        this.router.navigateByUrl('/inventory');
+        this.message = res?.message || 'If the account exists, a reset email has been sent.';
+        this.resetLink = res?.resetLink || '';
       },
       error: (err) => {
-        if (err?.status === 403 && err?.error?.code === 'PENDING_APPROVAL') {
-          this.message = 'Your account is pending admin approval. Please try again later.';
-        } else {
-          this.message = err?.error?.error || 'Login failed';
-        }
+        this.message = err?.error?.error || 'Failed to send reset email';
         this.loading = false;
       },
       complete: () => (this.loading = false),

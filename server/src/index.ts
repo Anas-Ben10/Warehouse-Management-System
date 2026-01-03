@@ -9,6 +9,7 @@ import { itemsRouter } from "./routes/items.js";
 import { locationsRouter } from "./routes/locations.js";
 import { inventoryRouter } from "./routes/inventory.js";
 import { transactionsRouter } from "./routes/transactions.js";
+import { projectsRouter } from "./routes/projects.js";
 import { reportsRouter } from "./routes/reports.js";
 import { syncRouter } from "./routes/sync.js";
 
@@ -36,6 +37,7 @@ app.use("/api/items", itemsRouter);
 app.use("/api/locations", locationsRouter);
 app.use("/api/inventory", inventoryRouter);
 app.use("/api/transactions", transactionsRouter);
+app.use("/api/projects", projectsRouter);
 app.use("/api/reports", reportsRouter);
 app.use("/api/sync", syncRouter);
 

@@ -1,9 +1,18 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, Item, Location } from '../core/api.service';
+import { ApiService, Item, Location, Project } from '../core/api.service';
+import { AuthService } from '../core/auth.service';
 import { SyncService } from '../core/sync.service';
 import { OfflineService } from '../core/offline.service';
+
+type TxnType =
+  | 'RECEIVE'
+  | 'SHIP'
+  | 'TRANSFER'
+  | 'DIVISION_TRANSFER'
+  | 'PROJECT_ISSUE'
+  | 'PROJECT_RETURN';
 
 @Component({
   standalone: true,
@@ -15,18 +24,25 @@ import { OfflineService } from '../core/offline.service';
 
       <div class="card">
         <label>Type</label>
-        <select [(ngModel)]="type">
-          <option value="IN">Receive (IN)</option>
-          <option value="OUT">Issue (OUT)</option>
-          <option value="MOVE">Move (MOVE)</option>
+        <select [(ngModel)]="type" (ngModelChange)="onTypeChange()">
+          <option value="RECEIVE">Receive (IN)</option>
+          <option value="SHIP">Ship / Consume (OUT)</option>
+          <option value="TRANSFER">Move within my division</option>
+
+          <option *ngIf="auth.isManager()" value="DIVISION_TRANSFER">Transfer to another division (Manager)</option>
+          <option *ngIf="auth.isManager()" value="PROJECT_ISSUE">Issue to a project (Manager)</option>
+          <option *ngIf="auth.isManager()" value="PROJECT_RETURN">Return from a project (Manager)</option>
         </select>
 
+        <div class="hint">
+          <div *ngIf="type==='TRANSFER'">Managers can only move items inside their own division.</div>
+          <div *ngIf="type==='DIVISION_TRANSFER'">Transfers between divisions are tracked as a division transfer.</div>
+          <div *ngIf="type==='PROJECT_ISSUE'">Issuing to a project reduces stock in the source warehouse AND increases stock in the project location.</div>
+          <div *ngIf="type==='PROJECT_RETURN'">Returning from a project reduces project stock AND increases stock back in your warehouse.</div>
+        </div>
+
         <label>Scan barcode / QR (or type)</label>
-        <input
-          [(ngModel)]="barcode"
-          (keyup.enter)="lookupByBarcode()"
-          placeholder="Scan then press Enter"
-        />
+        <input [(ngModel)]="barcode" (keyup.enter)="lookupByBarcode()" placeholder="Scan then press Enter" />
         <button (click)="lookupByBarcode()">Lookup</button>
 
         <label>Item</label>
@@ -40,23 +56,38 @@ import { OfflineService } from '../core/offline.service';
         <label>Quantity</label>
         <input [(ngModel)]="qty" type="number" min="1" />
 
-        <div *ngIf="type !== 'IN'">
+        <!-- Source / Destination -->
+        <div *ngIf="needsSrc()">
           <label>Source location</label>
           <select [(ngModel)]="srcLocationId">
             <option value="">-- Select --</option>
-            <option *ngFor="let l of locations" [value]="l.id">{{ l.code }} — {{ l.name }}</option>
+            <option *ngFor="let l of srcLocations()" [value]="l.id">{{ l.code }} — {{ l.name }}</option>
           </select>
         </div>
 
-        <div *ngIf="type !== 'OUT'">
+        <div *ngIf="needsDst()">
           <label>Destination location</label>
           <select [(ngModel)]="dstLocationId">
             <option value="">-- Select --</option>
-            <option *ngFor="let l of locations" [value]="l.id">{{ l.code }} — {{ l.name }}</option>
+            <option *ngFor="let l of dstLocations()" [value]="l.id">{{ l.code }} — {{ l.name }}</option>
           </select>
         </div>
 
-        <div *ngIf="type === 'IN'" class="row">
+        <!-- Project selection -->
+        <div *ngIf="needsProject()">
+          <label>Project</label>
+          <select [(ngModel)]="projectId">
+            <option value="">-- Select --</option>
+            <option *ngFor="let p of projects" [value]="p.id">{{ p.code }} — {{ p.name }}</option>
+          </select>
+
+          <p class="hint" *ngIf="projectPreview()">
+            Project location: <b>{{ projectPreview()!.location?.code || '-' }}</b>
+          </p>
+        </div>
+
+        <!-- Receive pricing -->
+        <div *ngIf="type === 'RECEIVE'" class="row">
           <label style="display:flex; gap:8px; align-items:center;">
             <input type="checkbox" [(ngModel)]="isFree" />
             Received for free
@@ -79,7 +110,7 @@ import { OfflineService } from '../core/offline.service';
     </div>
   `,
   styles: [`
-    .container { max-width: 700px; margin: 24px auto; padding: 0 16px; }
+    .container { max-width: 760px; margin: 24px auto; padding: 0 16px; }
     .card { display: grid; gap: 10px; padding: 16px; border: 1px solid #ddd; border-radius: 10px; }
     input, select, textarea { padding: 9px; border: 1px solid #ccc; border-radius: 6px; }
     button { padding: 10px 12px; border: 0; border-radius: 6px; cursor: pointer; }
@@ -89,19 +120,24 @@ import { OfflineService } from '../core/offline.service';
 })
 export class TransactionsPage {
   api = inject(ApiService);
+  auth = inject(AuthService);
   sync = inject(SyncService);
   offline = inject(OfflineService);
 
   items: Item[] = [];
-  locations: Location[] = [];
+  projects: Project[] = [];
 
-  type: 'IN' | 'OUT' | 'MOVE' = 'IN';
+  ownLocations: Location[] = [];
+  allWarehouses: Location[] = [];
+
+  type: TxnType = 'RECEIVE';
   barcode = '';
   itemId = '';
   qty = 1;
 
   srcLocationId = '';
   dstLocationId = '';
+  projectId = '';
 
   // receiving info
   isFree = false;
@@ -111,33 +147,85 @@ export class TransactionsPage {
   message = '';
 
   ngOnInit() {
-    this.api.listItems().subscribe({ next: (x) => (this.items = x) });
-    this.api.listLocations().subscribe({ next: (x) => (this.locations = x) });
+    this.api.listItems().subscribe({ next: (x) => (this.items = x || []) });
+
+    // own division locations (warehouse+project if returned)
+    this.api.listLocations('own').subscribe({ next: (x) => (this.ownLocations = (x || [])) });
+
+    // managers can fetch all warehouses to transfer to another division
+    if (this.auth.isManager()) {
+      this.api.listLocations('all').subscribe({ next: (x) => (this.allWarehouses = (x || []).filter(l => (l.kind || 'WAREHOUSE') === 'WAREHOUSE')) });
+      this.api.listProjects().subscribe({ next: (x) => (this.projects = x || []) });
+    } else {
+      // staff can still view projects in their division (read-only)
+      this.api.listProjects().subscribe({ next: (x) => (this.projects = x || []) });
+    }
   }
 
-lookupByBarcode() {
-  const b = (this.barcode || '').trim();
-  if (!b) return;
+  onTypeChange() {
+    this.message = '';
+    this.srcLocationId = '';
+    this.dstLocationId = '';
+    this.projectId = '';
 
-  // Offline? try local cached items first
-  const local = this.items.find((x) => (x.barcode || '').trim() === b);
-  if (local) {
-    this.itemId = local.id;
-    this.message = `Found (offline): ${local.sku} — ${local.name}`;
-    return;
+    if (this.type !== 'RECEIVE') {
+      this.isFree = false;
+      this.unitPrice = null;
+    }
   }
 
-  this.api.lookupItem({ barcode: b }).subscribe({
-    next: (item) => {
-      this.itemId = item.id;
-      this.message = `Found: ${item.sku} — ${item.name}`;
-    },
-    error: () => {
-      this.message = 'No item found for this barcode.';
-    },
-  });
-}
+  needsSrc() {
+    return this.type === 'SHIP' || this.type === 'TRANSFER' || this.type === 'DIVISION_TRANSFER' || this.type === 'PROJECT_ISSUE';
+  }
 
+  needsDst() {
+    return this.type === 'RECEIVE' || this.type === 'TRANSFER' || this.type === 'DIVISION_TRANSFER' || this.type === 'PROJECT_RETURN';
+  }
+
+  needsProject() {
+    return this.type === 'PROJECT_ISSUE' || this.type === 'PROJECT_RETURN';
+  }
+
+  srcLocations(): Location[] {
+    // Always within own division
+    return this.ownLocations.filter(l => (l.kind || 'WAREHOUSE') === 'WAREHOUSE');
+  }
+
+  dstLocations(): Location[] {
+    if (this.type === 'DIVISION_TRANSFER') {
+      // Managers can pick any warehouse across divisions
+      return this.auth.isManager() ? this.allWarehouses : this.srcLocations();
+    }
+    return this.ownLocations.filter(l => (l.kind || 'WAREHOUSE') === 'WAREHOUSE');
+  }
+
+  projectPreview(): Project | null {
+    const id = this.projectId;
+    return id ? (this.projects.find(p => p.id === id) || null) : null;
+  }
+
+  lookupByBarcode() {
+    const b = (this.barcode || '').trim();
+    if (!b) return;
+
+    // Offline? try local cached items first
+    const local = this.items.find((x) => (x.barcode || '').trim() === b);
+    if (local) {
+      this.itemId = local.id;
+      this.message = `Found (offline): ${local.sku} — ${local.name}`;
+      return;
+    }
+
+    this.api.lookupItem({ barcode: b }).subscribe({
+      next: (item) => {
+        this.itemId = item.id;
+        this.message = `Found: ${item.sku} — ${item.name}`;
+      },
+      error: () => {
+        this.message = 'No item found for this barcode.';
+      },
+    });
+  }
 
   async submit() {
     this.message = '';
@@ -146,22 +234,38 @@ lookupByBarcode() {
       this.message = 'Please select an item.';
       return;
     }
+    if (!Number(this.qty) || Number(this.qty) <= 0) {
+      this.message = 'Quantity must be > 0.';
+      return;
+    }
+    if (this.needsSrc() && !this.srcLocationId) {
+      this.message = 'Please select a source location.';
+      return;
+    }
+    if (this.needsDst() && !this.dstLocationId) {
+      this.message = 'Please select a destination location.';
+      return;
+    }
+    if (this.needsProject() && !this.projectId) {
+      this.message = 'Please select a project.';
+      return;
+    }
 
     const body: any = {
       type: this.type,
       itemId: this.itemId,
       qty: Number(this.qty),
-      srcLocationId: this.srcLocationId || null,
-      dstLocationId: this.dstLocationId || null,
+      srcLocationId: this.needsSrc() ? (this.srcLocationId || null) : null,
+      dstLocationId: this.needsDst() ? (this.dstLocationId || null) : null,
+      projectId: this.needsProject() ? (this.projectId || null) : null,
       note: this.note || null,
     };
 
-    if (this.type === 'IN') {
+    if (this.type === 'RECEIVE') {
       body.isFree = !!this.isFree;
       body.unitPrice = this.isFree ? null : (this.unitPrice ?? null);
     }
 
-    // Online: do it now. Offline: enqueue.
     if (!this.offline.isOffline()) {
       this.api.createTxn(body).subscribe({
         next: () => (this.message = 'Transaction created.'),

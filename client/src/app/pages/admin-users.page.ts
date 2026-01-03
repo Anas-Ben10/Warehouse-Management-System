@@ -84,6 +84,7 @@ import { AuthService } from '../core/auth.service';
               <td>
                 <button (click)="save(u)">Save</button>
                 <button *ngIf="!u.isActive" (click)="approve(u)">Approve</button>
+                <button (click)="sendReset(u)">Send reset</button>
               </td>
             </tr>
           </tbody>
@@ -93,6 +94,10 @@ import { AuthService } from '../core/auth.service';
       </div>
 
       <p class="hint" *ngIf="message">{{ message }}</p>
+      <div class="hint" *ngIf="lastResetLink">
+        <b>Reset link:</b>
+        <div class="mono">{{ lastResetLink }}</div>
+      </div>
     </div>
 
     <ng-template #noAccess>
@@ -126,6 +131,8 @@ export class AdminUsersPage {
   divisions: Division[] = [];
   message = '';
 
+  lastResetLink = '';
+
   newDivisionName = '';
 
   inviteName = '';
@@ -140,7 +147,10 @@ export class AdminUsersPage {
 
   reload() {
     this.message = '';
+
+  lastResetLink = '';
     this.inviteLink = '';
+    this.lastResetLink = '';
     this.api.listDivisions().subscribe({ next: (d) => (this.divisions = d) });
     this.api.listUsers().subscribe({
       next: (u) => (this.users = u),
@@ -185,7 +195,10 @@ export class AdminUsersPage {
 
   invite() {
     this.inviteLink = '';
+    this.lastResetLink = '';
     this.message = '';
+
+  lastResetLink = '';
     this.api.inviteUser({
       email: this.inviteEmail,
       name: this.inviteName,
