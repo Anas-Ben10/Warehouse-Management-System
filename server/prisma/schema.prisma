@@ -91,7 +91,10 @@ model Project {
 
   division   Division @relation(fields: [divisionId], references: [id])
   location   Location @relation(fields: [locationId], references: [id])
+
+  transactions Transaction[]
 }
+
 
 model Location {
   id        String   @id @default(cuid())
