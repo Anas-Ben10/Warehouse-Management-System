@@ -156,7 +156,7 @@ export class MapsPage {
     this.api.listLocations(scope as any).subscribe({
       next: (x) => {
         // Map page focuses on warehouses
-        this.locations = (x || []).filter(l => !l.kind || l.kind === 'WAREHOUSE' || l.kind === 'WAREHOUSE');
+        this.locations = (x || []).filter(l => !l.kind || l.kind === 'WAREHOUSE');
         if (this.selected) {
           const refreshed = this.locations.find(l => l.id === this.selected!.id) || null;
           this.select(refreshed || (this.locations[0] || null));

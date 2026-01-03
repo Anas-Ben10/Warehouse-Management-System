@@ -147,8 +147,6 @@ export class AdminUsersPage {
 
   reload() {
     this.message = '';
-
-  lastResetLink = '';
     this.inviteLink = '';
     this.lastResetLink = '';
     this.api.listDivisions().subscribe({ next: (d) => (this.divisions = d) });
@@ -180,6 +178,21 @@ export class AdminUsersPage {
     });
   }
 
+
+  sendReset(u: UserRow) {
+    this.message = '';
+    this.lastResetLink = '';
+    this.api.adminSendReset(u.email).subscribe({
+      next: (res) => {
+        this.lastResetLink = res?.resetLink || '';
+        this.message = this.lastResetLink
+          ? `Reset link generated for ${u.email}`
+          : `Reset email sent to ${u.email}`;
+      },
+      error: (e) => (this.message = e?.error?.error || 'Failed to send reset'),
+    });
+  }
+
   createDivision() {
     const name = (this.newDivisionName || '').trim();
     if (!name) return;
@@ -198,7 +211,6 @@ export class AdminUsersPage {
     this.lastResetLink = '';
     this.message = '';
 
-  lastResetLink = '';
     this.api.inviteUser({
       email: this.inviteEmail,
       name: this.inviteName,
