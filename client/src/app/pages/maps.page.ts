@@ -67,30 +67,33 @@ import { AuthService } from '../core/auth.service';
               </div>
             </ng-template>
 
-            <div class="admin" *ngIf="auth.isAdmin()">
-              <h3 style="margin-top:18px">Admin • Edit / Create warehouse location</h3>
+          </div>
 
-              <div class="form">
-                <select [(ngModel)]="form.divisionId">
-                  <option value="">Select division</option>
-                  <option *ngFor="let d of divisions" [value]="d.id">{{ d.name }}</option>
-                </select>
-                <input [(ngModel)]="form.code" placeholder="Code (e.g., WH-RIY-01)" />
-                <input [(ngModel)]="form.name" placeholder="Name" />
-                <input [(ngModel)]="form.address" placeholder="Address (optional)" />
-                <input [(ngModel)]="form.lat" type="number" step="0.000001" placeholder="Latitude" />
-                <input [(ngModel)]="form.lng" type="number" step="0.000001" placeholder="Longitude" />
-              </div>
+          <!-- Admin panel should be available even if there are no locations yet -->
+          <div class="admin" *ngIf="auth.isAdmin()">
+            <h3 style="margin-top:18px">Admin • Create / Edit warehouse location</h3>
+            <p class="muted" style="margin-top:6px">Tip: Select a location to edit it, or use <b>New</b> to create your first one.</p>
 
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-                <button (click)="save()" [disabled]="saving">{{ saving ? 'Saving...' : (form.id ? 'Update' : 'Create') }}</button>
-                <button (click)="newForm()">New</button>
-                <button class="danger" *ngIf="form.id" (click)="remove()">Delete</button>
-              </div>
-
-              <p class="muted" style="margin-top:10px" *ngIf="message">{{ message }}</p>
-              <p class="muted">Note: Only admins can add/update/delete warehouse locations.</p>
+            <div class="form">
+              <select [(ngModel)]="form.divisionId">
+                <option value="">Select division</option>
+                <option *ngFor="let d of divisions" [value]="d.id">{{ d.name }}</option>
+              </select>
+              <input [(ngModel)]="form.code" placeholder="Code (e.g., WH-RIY-01)" />
+              <input [(ngModel)]="form.name" placeholder="Name" />
+              <input [(ngModel)]="form.address" placeholder="Address (optional)" />
+              <input [(ngModel)]="form.lat" type="number" step="0.000001" placeholder="Latitude" />
+              <input [(ngModel)]="form.lng" type="number" step="0.000001" placeholder="Longitude" />
             </div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+              <button (click)="save()" [disabled]="saving">{{ saving ? 'Saving...' : (form.id ? 'Update' : 'Create') }}</button>
+              <button (click)="newForm()">New</button>
+              <button class="danger" *ngIf="form.id" (click)="remove()">Delete</button>
+            </div>
+
+            <p class="muted" style="margin-top:10px" *ngIf="message">{{ message }}</p>
+            <p class="muted">Note: Only admins can add/update/delete warehouse locations.</p>
           </div>
         </div>
       </div>

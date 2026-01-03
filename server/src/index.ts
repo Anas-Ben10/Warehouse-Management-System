@@ -15,10 +15,25 @@ import { syncRouter } from "./routes/sync.js";
 
 const app = express();
 const PORT = Number(process.env.PORT || 8080);
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
+// Allow either a single origin or a comma-separated allowlist.
+const CORS_ORIGIN_RAW = process.env.CORS_ORIGIN || "http://localhost:5173";
+const CORS_ALLOWLIST = CORS_ORIGIN_RAW
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 app.use(helmet());
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // allow non-browser requests (no Origin header)
+      if (!origin) return cb(null, true);
+      if (CORS_ALLOWLIST.includes(origin)) return cb(null, true);
+      return cb(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
