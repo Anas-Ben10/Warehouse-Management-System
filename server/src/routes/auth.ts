@@ -14,6 +14,9 @@ import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 
 const prisma = new PrismaClient();
 const COOKIE_SECURE = (process.env.COOKIE_SECURE || "").toLowerCase() === "true";
+// When the UI is hosted on a different origin than the API (typical on Render),
+// browsers require SameSite=None + Secure for cookies to be sent with XHR/fetch.
+const COOKIE_SAMESITE: "lax" | "none" = COOKIE_SECURE ? "none" : "lax";
 const APP_URL = process.env.PUBLIC_APP_URL || process.env.CORS_ORIGIN || "http://localhost:5173";
 
 export const authRouter = Router();
@@ -69,9 +72,11 @@ authRouter.post(
 
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: COOKIE_SAMESITE,
+      // SameSite=None requires Secure.
       secure: COOKIE_SECURE,
       path: "/api/auth/refresh",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
     });
 
     return res.json({
@@ -319,7 +324,11 @@ authRouter.post("/refresh", async (req, res) => {
  * Logout
  */
 authRouter.post("/logout", async (_req, res) => {
-  res.clearCookie("refresh_token", { path: "/api/auth/refresh" });
+  res.clearCookie("refresh_token", {
+    path: "/api/auth/refresh",
+    sameSite: COOKIE_SAMESITE,
+    secure: COOKIE_SECURE,
+  });
   return res.json({ ok: true });
 });
 

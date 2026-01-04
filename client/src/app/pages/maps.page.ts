@@ -1,9 +1,9 @@
-import { Component, inject } from '@angular/core';
+import { AfterViewInit, Component, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService, Location, Division } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
+import * as L from 'leaflet';
 
 @Component({
   standalone: true,
@@ -28,7 +28,16 @@ import { AuthService } from '../core/auth.service';
 
           <div class="list">
             <button class="row" *ngFor="let l of locations" (click)="select(l)" [class.active]="selected?.id===l.id">
-              <div style="font-weight:700">{{ l.code }}</div>
+              <div class="rowhead">
+                <div style="font-weight:700">{{ l.code }}</div>
+                <a
+                  *ngIf="l.lat!=null && l.lng!=null"
+                  class="mini"
+                  (click)="$event.stopPropagation()"
+                  [href]="googleMapsUrl(l.lat!, l.lng!)"
+                  target="_blank"
+                  rel="noreferrer">Open</a>
+              </div>
               <div class="muted">{{ l.name }}</div>
               <div class="muted" *ngIf="l.lat!=null && l.lng!=null">({{ l.lat }}, {{ l.lng }})</div>
               <div class="muted" *ngIf="l.address">{{ l.address }}</div>
@@ -43,30 +52,25 @@ import { AuthService } from '../core/auth.service';
 
           <div class="muted" *ngIf="!selected">Select a location to view it on the map.</div>
 
-          <div *ngIf="selected">
+          <div class="mapwrap">
+            <!-- Leaflet map (interactive). Admin can click to set coordinates. -->
+            <div class="map" [id]="mapId"></div>
+          </div>
+
+          <div *ngIf="selected" style="margin-top:10px">
             <div class="muted" style="margin-bottom:8px">
               <b>{{ selected.code }}</b> — {{ selected.name }}
             </div>
 
-            <div *ngIf="selected.lat!=null && selected.lng!=null; else noCoords">
-              <iframe
-                class="map"
-                [src]="mapUrl(selected.lat!, selected.lng!)"
-                loading="lazy"
-                referrerpolicy="no-referrer-when-downgrade">
-              </iframe>
-
-              <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-                <a class="linkbtn" [href]="googleMapsUrl(selected.lat!, selected.lng!)" target="_blank" rel="noreferrer">Open in Google Maps</a>
-              </div>
+            <div class="muted" *ngIf="selected.lat==null || selected.lng==null">
+              No coordinates saved yet.
+              <span *ngIf="auth.isAdmin()">Click on the map to choose the location, then click <b>Create/Update</b>.</span>
             </div>
 
-            <ng-template #noCoords>
-              <div class="muted">
-                No coordinates saved for this location. (Admin can add lat/lng below.)
-              </div>
-            </ng-template>
-
+            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap" *ngIf="selected.lat!=null && selected.lng!=null">
+              <a class="linkbtn" [href]="googleMapsUrl(selected.lat!, selected.lng!)" target="_blank" rel="noreferrer">Open in Google Maps</a>
+              <a class="linkbtn" [href]="openStreetMapUrl(selected.lat!, selected.lng!)" target="_blank" rel="noreferrer">Open in OpenStreetMap</a>
+            </div>
           </div>
 
           <!-- Admin panel should be available even if there are no locations yet -->
@@ -110,7 +114,10 @@ import { AuthService } from '../core/auth.service';
     .row { text-align:left; border: 1px solid #eee; background: #fff; border-radius: 10px; padding: 10px; cursor: pointer; }
     .row.active { border-color: #cfd3ff; background: #f7f7ff; }
     .muted { margin: 0; color: #555; font-size: 13px; }
-    .map { width: 100%; height: 380px; border: 0; border-radius: 12px; }
+    .rowhead { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .mini { font-size:12px; color:#111; text-decoration:underline; }
+    .mapwrap { border-radius: 12px; overflow:hidden; border: 1px solid #eee; }
+    .map { width: 100%; height: 380px; border: 0; }
     button { padding: 9px 12px; border: 0; border-radius: 8px; cursor: pointer; }
     .danger { background: #ffe7e7; }
     .linkbtn { display:inline-block; padding: 9px 12px; border-radius: 8px; background: #f3f3f3; color:#111; text-decoration:none; }
@@ -122,7 +129,13 @@ import { AuthService } from '../core/auth.service';
 export class MapsPage {
   api = inject(ApiService);
   auth = inject(AuthService);
-  sanitizer = inject(DomSanitizer);
+
+  // Leaflet map
+  private map: L.Map | null = null;
+  private marker: L.CircleMarker | null = null;
+  readonly mapId = 'leafletMap';
+  // Default center (Riyadh-ish) to avoid showing (0,0) when there are no coordinates.
+  private readonly defaultCenter: [number, number] = [24.7136, 46.6753];
 
   locations: Location[] = [];
   selected: Location | null = null;
@@ -151,6 +164,18 @@ export class MapsPage {
       this.api.listDivisions().subscribe({ next: (d) => (this.divisions = d || []) });
     }
     this.reload();
+  }
+
+  ngAfterViewInit() {
+    this.ensureMap();
+  }
+
+  ngOnDestroy() {
+    try {
+      this.map?.remove();
+    } catch {}
+    this.map = null;
+    this.marker = null;
   }
 
   reload() {
@@ -186,12 +211,17 @@ export class MapsPage {
         lng: (l.lng ?? null),
       };
     }
+
+    // Update map preview when selecting a location.
+    this.updateMapFromLocation(l);
   }
 
   newForm() {
     this.selected = null;
     this.message = '';
     this.form = { id: null, code: '', name: '', divisionId: '', address: '', lat: null, lng: null };
+    // Keep map visible; allow admin to click map to choose coordinates.
+    this.updateMapFromCoords(this.form.lat, this.form.lng);
   }
 
   save() {
@@ -253,18 +283,74 @@ export class MapsPage {
     });
   }
 
-  mapUrl(lat: number, lng: number): SafeResourceUrl {
-    // OpenStreetMap embed supports a marker for a single location
-    const d = 0.01;
-    const left = lng - d, right = lng + d, bottom = lat - d, top = lat + d;
-    const url = new URL('https://www.openstreetmap.org/export/embed.html');
-    url.searchParams.set('bbox', `${left},${bottom},${right},${top}`);
-    url.searchParams.set('layer', 'mapnik');
-    url.searchParams.set('marker', `${lat},${lng}`);
-    return this.sanitizer.bypassSecurityTrustResourceUrl(url.toString());
-  }
-
+  /** External map links */
   googleMapsUrl(lat: number, lng: number) {
     return `https://www.google.com/maps?q=${lat},${lng}`;
+  }
+
+  openStreetMapUrl(lat: number, lng: number) {
+    return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`;
+  }
+
+  /** Leaflet setup */
+  private ensureMap() {
+    if (this.map) return;
+    const el = document.getElementById(this.mapId);
+    if (!el) return;
+
+    this.map = L.map(el, {
+      center: this.defaultCenter,
+      zoom: 10,
+      zoomControl: true,
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(this.map);
+
+    // Circle marker avoids dealing with image assets.
+    this.marker = L.circleMarker(this.defaultCenter, {
+      radius: 9,
+      weight: 2,
+      opacity: 1,
+      fillOpacity: 0.45,
+    }).addTo(this.map);
+
+    // Allow admin to pick coordinates directly from the map.
+    this.map.on('click', (ev: L.LeafletMouseEvent) => {
+      if (!this.auth.isAdmin()) return;
+      const lat = Number(ev.latlng.lat.toFixed(6));
+      const lng = Number(ev.latlng.lng.toFixed(6));
+      this.form.lat = lat;
+      this.form.lng = lng;
+      this.updateMapFromCoords(lat, lng);
+    });
+
+    // If a location is already selected, render it.
+    if (this.selected) this.updateMapFromLocation(this.selected);
+  }
+
+  private updateMapFromLocation(l: Location) {
+    this.ensureMap();
+    const lat = (l.lat ?? null);
+    const lng = (l.lng ?? null);
+    this.updateMapFromCoords(lat, lng);
+  }
+
+  private updateMapFromCoords(lat: number | null, lng: number | null) {
+    this.ensureMap();
+    if (!this.map || !this.marker) return;
+
+    // If coords are missing, keep default center.
+    if (lat == null || lng == null) {
+      this.map.setView(this.defaultCenter, 10, { animate: true });
+      this.marker.setLatLng(this.defaultCenter);
+      return;
+    }
+
+    const pt: [number, number] = [lat, lng];
+    this.map.setView(pt, 15, { animate: true });
+    this.marker.setLatLng(pt);
   }
 }
