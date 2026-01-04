@@ -5,24 +5,25 @@
     {
       "name": "app",
       "installMode": "prefetch",
-      "resources": { "files": ["/favicon.ico", "/index.html", "/*.css", "/*.js"] }
+      "resources": {
+        "files": [
+          "/favicon.ico",
+          "/index.html",
+          "/manifest.webmanifest",
+          "/*.css",
+          "/*.js"
+        ]
+      }
     },
     {
       "name": "assets",
       "installMode": "lazy",
       "updateMode": "prefetch",
-      "resources": { "files": ["/assets/**", "/manifest.webmanifest"] }
-    }
-  ],
-  "dataGroups": [
-    {
-      "name": "api-cache",
-      "urls": ["/api/**"],
-      "cacheConfig": {
-        "strategy": "freshness",
-        "maxSize": 100,
-        "maxAge": "1h",
-        "timeout": "5s"
+      "resources": {
+        "files": [
+          "/assets/**",
+          "/*.(png|jpg|jpeg|gif|webp|svg|ico)"
+        ]
       }
     }
   ]
