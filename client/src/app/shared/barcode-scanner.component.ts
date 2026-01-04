@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges, ViewChild } from '@angular/core';
-import { BrowserMultiFormatReader, NotFoundException } from '@zxing/browser';
+import { BrowserMultiFormatReader } from '@zxing/browser';
 
 type VideoDevice = { deviceId: string; label: string };
 
@@ -108,6 +108,7 @@ export class BarcodeScannerComponent implements OnChanges, OnDestroy {
 
   private reader = new BrowserMultiFormatReader();
   private isRunning = false;
+  private controls: any = null;
 
   async ngOnChanges(changes: SimpleChanges) {
     if (changes['active']) {
@@ -166,7 +167,7 @@ export class BarcodeScannerComponent implements OnChanges, OnDestroy {
       this.stop(); // ensure clean
       this.isRunning = true;
 
-      await this.reader.decodeFromVideoDevice(this.selectedDeviceId, video, (result, err) => {
+      this.controls = await (this.reader as any).decodeFromVideoDevice(this.selectedDeviceId, video, (result: any, err: any) => {
         if (result) {
           const text = (result.getText?.() || '').trim();
           if (text) {
@@ -175,9 +176,12 @@ export class BarcodeScannerComponent implements OnChanges, OnDestroy {
           }
           return;
         }
-        // NotFoundException is normal when no code is in frame
-        if (err && !(err instanceof NotFoundException)) {
-          this.error = String(err);
+        // "NotFoundException" is normal when no code is in frame
+        if (err) {
+          const name = (err as any)?.name;
+          const msg = (err as any)?.message;
+          const isNotFound = name === 'NotFoundException' || (typeof msg === 'string' && msg.includes('NotFoundException'));
+          if (!isNotFound) this.error = String(msg || err);
         }
       });
     } catch (e: any) {
@@ -191,13 +195,22 @@ export class BarcodeScannerComponent implements OnChanges, OnDestroy {
 
   private stop() {
     if (!this.isRunning) return;
-    try { this.reader.reset(); } catch {}
+
+    // Stop ZXing decode loop (different versions expose different stop methods)
+    const r: any = this.reader as any;
+    try { this.controls?.stop?.(); } catch {}
+    this.controls = null;
+    try { typeof r.reset === 'function' && r.reset(); } catch {}
+    try { typeof r.stopContinuousDecode === 'function' && r.stopContinuousDecode(); } catch {}
+    try { typeof r.stopAsyncDecode === 'function' && r.stopAsyncDecode(); } catch {}
+
     this.isRunning = false;
 
+    // Stop camera tracks
     const video = this.videoRef?.nativeElement;
     const stream = video?.srcObject as MediaStream | null;
     if (stream) {
-      stream.getTracks().forEach(t => t.stop());
+      stream.getTracks().forEach((t) => t.stop());
       if (video) video.srcObject = null;
     }
   }
