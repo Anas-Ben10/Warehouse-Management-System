@@ -5,6 +5,7 @@ import { ApiService, Item, Location, Project } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { SyncService } from '../core/sync.service';
 import { OfflineService } from '../core/offline.service';
+import { BarcodeScannerComponent } from '../shared/barcode-scanner.component';
 
 type TxnType =
   | 'RECEIVE'
@@ -17,7 +18,7 @@ type TxnType =
 @Component({
   standalone: true,
   selector: 'app-transactions-page',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, BarcodeScannerComponent],
   template: `
     <div class="container">
       <h2>Transactions</h2>
@@ -41,9 +42,19 @@ type TxnType =
           <div *ngIf="type==='PROJECT_RETURN'">Returning from a project reduces project stock AND increases stock back in your warehouse.</div>
         </div>
 
-        <label>Scan barcode / QR (or type)</label>
-        <input [(ngModel)]="barcode" (keyup.enter)="lookupByBarcode()" placeholder="Scan then press Enter" />
-        <button (click)="lookupByBarcode()">Lookup</button>
+        
+<label>Scan barcode / QR (or type)</label>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <input style="flex:1;min-width:220px" [(ngModel)]="barcode" (keyup.enter)="lookupByBarcode()" placeholder="Scan / type / paste then press Enter" />
+  <button type="button" (click)="openScanner()">Scan</button>
+  <button type="button" (click)="lookupByBarcode()">Lookup</button>
+</div>
+
+<app-barcode-scanner
+  [active]="showScanner"
+  (scanned)="onScanned($event)"
+  (closed)="showScanner=false">
+</app-barcode-scanner>
 
         <label>Item</label>
         <select [(ngModel)]="itemId">
@@ -142,6 +153,18 @@ export class TransactionsPage {
 
   type: TxnType = 'RECEIVE';
   barcode = '';
+  showScanner = false;
+
+  openScanner(){
+    this.showScanner = true;
+  }
+
+  onScanned(code: string){
+    this.showScanner = false;
+    this.barcode = code;
+    this.lookupByBarcode();
+  }
+
   itemId = '';
   qty = 1;
 

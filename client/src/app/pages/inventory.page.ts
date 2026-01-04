@@ -1,12 +1,14 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ApiService, StockRow } from '../core/api.service';
 import { OfflineService } from '../core/offline.service';
 import { SyncService } from '../core/sync.service';
+import { BarcodeScannerComponent } from '../shared/barcode-scanner.component';
 
 @Component({
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule, BarcodeScannerComponent],
   template: `
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
@@ -22,14 +24,28 @@ import { SyncService } from '../core/sync.service';
 
     <div style="height:12px"></div>
 
-    <table class="table">
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <input class="input" style="flex:1;min-width:220px" [(ngModel)]="query" placeholder="Search by SKU / name / barcode" />
+  <button class="btn" type="button" (click)="openScanner()">Scan</button>
+  <button class="btn" type="button" (click)="query=''">Clear</button>
+</div>
+
+<app-barcode-scanner
+  [active]="showScanner"
+  (scanned)="onScanned($event)"
+  (closed)="showScanner=false">
+</app-barcode-scanner>
+
+<div style="height:12px"></div>
+
+<table class="table">
       <thead>
         <tr>
           <th>SKU</th><th>Item</th><th>Location</th><th>Qty</th>
         </tr>
       </thead>
       <tbody>
-        <tr *ngFor="let r of rows">
+        <tr *ngFor="let r of visibleRows()">
           <td>{{r.item.sku}}</td>
           <td>{{r.item.name}}</td>
           <td>{{r.location.code}}</td>
@@ -48,6 +64,27 @@ export class InventoryPage {
   sync = inject(SyncService);
 
   rows: StockRow[] = [];
+  query = '';
+  showScanner = false;
+
+  openScanner(){ this.showScanner = true; }
+
+  onScanned(code: string){
+    this.showScanner = false;
+    this.query = code;
+  }
+
+  visibleRows(){
+    const q = (this.query || '').trim().toLowerCase();
+    if(!q) return this.rows;
+    return (this.rows || []).filter(r =>
+      (r.item?.sku || '').toLowerCase().includes(q) ||
+      (r.item?.name || '').toLowerCase().includes(q) ||
+      (r.item as any)?.barcode?.toLowerCase?.().includes?.(q) ||
+      (r.location?.code || '').toLowerCase().includes(q)
+    );
+  }
+
   error = '';
 
   ngOnInit(){ this.refresh(); }
