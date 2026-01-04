@@ -1,6 +1,7 @@
 import { AfterViewInit, Component, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 import { ApiService, Location, Division } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import * as L from 'leaflet';
@@ -129,6 +130,7 @@ import * as L from 'leaflet';
 export class MapsPage {
   api = inject(ApiService);
   auth = inject(AuthService);
+  route = inject(ActivatedRoute);
 
   // Leaflet map
   private map: L.Map | null = null;
@@ -143,6 +145,13 @@ export class MapsPage {
   divisions: Division[] = [];
 
   showAllWarehouses = false;
+
+  // Query params
+  private focusLocationId: string | null = null;
+  private openedAllScope = false;
+
+  // Remember the admin's current position to keep the map centered when creating a new location
+  private adminCurrentCenter: [number, number] | null = null;
 
   // admin form (warehouse only)
   form: { id?: string | null; code: string; name: string; divisionId: string; address: string; lat: number | null; lng: number | null } = {
@@ -160,6 +169,14 @@ export class MapsPage {
   error = '';
 
   ngOnInit() {
+    // Read query params (one-shot)
+    const qp = this.route.snapshot.queryParamMap;
+    this.focusLocationId = qp.get('focus');
+    this.openedAllScope = qp.get('all') === '1' || qp.get('scope') === 'all';
+    if (this.auth.isManager() && this.openedAllScope) {
+      this.showAllWarehouses = true;
+    }
+
     if (this.auth.isAdmin()) {
       this.api.listDivisions().subscribe({ next: (d) => (this.divisions = d || []) });
     }
@@ -185,14 +202,95 @@ export class MapsPage {
       next: (x) => {
         // Map page focuses on warehouses
         this.locations = (x || []).filter(l => !l.kind || l.kind === 'WAREHOUSE');
+
+        // If we were opened with a focus id but we didn't load 'all' ...
+        // allow managers to temporarily load all to locate the requested warehouse.
+        if (this.focusLocationId && this.auth.isManager() && !this.showAllWarehouses) {
+          const foundInOwn = this.locations.some(l => l.id === this.focusLocationId);
+          if (!foundInOwn) {
+            this.showAllWarehouses = true;
+            this.reload();
+            return;
+          }
+        }
+
+        // If a focused location was requested, select it (if present).
+        if (this.focusLocationId) {
+          const focused = this.locations.find(l => l.id === this.focusLocationId) || null;
+          if (focused) {
+            this.select(focused);
+            return;
+          }
+        }
+
+        // Keep current selection if possible
         if (this.selected) {
           const refreshed = this.locations.find(l => l.id === this.selected!.id) || null;
-          this.select(refreshed || (this.locations[0] || null));
-        } else if (this.locations.length) {
-          this.select(this.locations[0]);
+          if (refreshed) {
+            this.select(refreshed);
+            return;
+          }
+          // selection disappeared
+          this.selected = null;
         }
+
+        // Default behavior
+        if (this.auth.isAdmin()) {
+          // Admin starts on current location (new location form). Clicking a location will move the map.
+          this.newForm();
+          this.centerAdminToCurrentIfNeeded();
+          return;
+        }
+
+        const preferred = this.pickPreferredLocation(this.locations);
+        if (preferred) this.select(preferred);
       },
       error: (e) => this.error = e?.error?.error || 'Failed to load locations'
+    });
+  }
+
+  private pickPreferredLocation(list: Location[]): Location | null {
+    if (!list?.length) return null;
+    const divisionId = this.auth.user?.division?.id;
+
+    // Managers should start on their division/warehouse even when showing all warehouses.
+    const inDivision = divisionId ? list.filter(l => l.divisionId === divisionId) : list;
+    const firstWithCoords = inDivision.find(l => (l.lat ?? null) !== null && (l.lng ?? null) !== null);
+    return firstWithCoords || inDivision[0] || list[0] || null;
+  }
+
+  private async centerAdminToCurrentIfNeeded() {
+    if (!this.auth.isAdmin()) return;
+    if (this.selected) return;
+    if (this.adminCurrentCenter) {
+      // already have it
+      this.updateMapFromCoords(null, null);
+      return;
+    }
+
+    const coords = await this.getBrowserLocation();
+    if (!coords) {
+      // fallback to default center
+      this.updateMapFromCoords(null, null);
+      return;
+    }
+
+    this.adminCurrentCenter = coords;
+    this.updateMapFromCoords(null, null);
+  }
+
+  private getBrowserLocation(): Promise<[number, number] | null> {
+    return new Promise((resolve) => {
+      try {
+        if (!('geolocation' in navigator)) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve([pos.coords.latitude, pos.coords.longitude]),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      } catch {
+        resolve(null);
+      }
     });
   }
 
@@ -342,10 +440,11 @@ export class MapsPage {
     this.ensureMap();
     if (!this.map || !this.marker) return;
 
-    // If coords are missing, keep default center.
+    // If coords are missing, keep a sensible center.
     if (lat == null || lng == null) {
-      this.map.setView(this.defaultCenter, 10, { animate: true });
-      this.marker.setLatLng(this.defaultCenter);
+      const fallback = (this.auth.isAdmin() && this.adminCurrentCenter) ? this.adminCurrentCenter : this.defaultCenter;
+      this.map.setView(fallback, 10, { animate: true });
+      this.marker.setLatLng(fallback);
       return;
     }
 

@@ -13,7 +13,10 @@ import { sendMail } from "../utils/mailer.js";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 
 const prisma = new PrismaClient();
-const COOKIE_SECURE = (process.env.COOKIE_SECURE || "").toLowerCase() === "true";
+// In production (HTTPS) the refresh cookie must be Secure + SameSite=None
+const COOKIE_SECURE =
+  (process.env.COOKIE_SECURE || "").toLowerCase() === "true" ||
+  (process.env.NODE_ENV || "").toLowerCase() === "production";
 // When the UI is hosted on a different origin than the API (typical on Render),
 // browsers require SameSite=None + Secure for cookies to be sent with XHR/fetch.
 const COOKIE_SAMESITE: "lax" | "none" = COOKIE_SECURE ? "none" : "lax";

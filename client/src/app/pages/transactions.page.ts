@@ -73,6 +73,16 @@ type TxnType =
           </select>
         </div>
 
+        <!-- Map helpers for managers during division transfers -->
+        <div *ngIf="type === 'DIVISION_TRANSFER' && auth.isManager()" class="row">
+          <p class="hint">Need to view warehouses on a map while transferring? Use these shortcuts.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" (click)="openMapAllWarehouses()">Open map (all warehouses)</button>
+            <button type="button" [disabled]="!srcLocationId" (click)="openMapForLocation(srcLocationId)">View source on map</button>
+            <button type="button" [disabled]="!dstLocationId" (click)="openMapForLocation(dstLocationId)">View destination on map</button>
+          </div>
+        </div>
+
         <!-- Project selection -->
         <div *ngIf="needsProject()">
           <label>Project</label>
@@ -225,6 +235,21 @@ export class TransactionsPage {
         this.message = 'No item found for this barcode.';
       },
     });
+  }
+
+  // Map helpers (used mainly for Division Transfers)
+  openMapAll() {
+    window.open('/maps?all=1', '_blank', 'noopener');
+  }
+
+  openMapForDestination() {
+    if (!this.dstLocationId) return;
+    window.open(`/maps?all=1&focus=${encodeURIComponent(this.dstLocationId)}`, '_blank', 'noopener');
+  }
+
+  openMapForSource() {
+    if (!this.srcLocationId) return;
+    window.open(`/maps?focus=${encodeURIComponent(this.srcLocationId)}`, '_blank', 'noopener');
   }
 
   async submit() {
